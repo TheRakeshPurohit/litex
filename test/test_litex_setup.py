@@ -210,15 +210,17 @@ class TestLiteXSetup(unittest.TestCase):
         self.assertEqual(self.git_output(submodule_path, "rev-parse", "HEAD"), submodule_v1)
 
     def test_update_updates_submodules_after_frozen_sha_checkout(self):
-        main_remote, _main_v1, submodule_v1 = self.create_recursive_repo()
+        main_remote, main_v1, submodule_v1 = self.create_recursive_repo()
         repo_path = os.path.join(self.workspace, "litex")
 
         with mock.patch.dict(os.environ, {"GIT_ALLOW_PROTOCOL": "file"}):
             self.git(
                 self.workspace,
                 "-c", "protocol.file.allow=always",
-                "clone", "--recursive", main_remote, repo_path,
+                "clone", "--depth", "1", "--recursive", f"file://{main_remote}", repo_path,
             )
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.git(repo_path, "cat-file", "-e", f"{main_v1}^{{commit}}")
             litex_setup.litex_setup_update_repos(config="minimal")
 
         submodule_path = os.path.join(repo_path, "deps", "submodule")

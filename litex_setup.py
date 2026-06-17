@@ -217,13 +217,52 @@ def print_indented(output, indent="    ", max_lines=None):
         lines = lines[:max_lines] + [f"... ({remaining} more line(s))"]
     print("\n".join(indent + line for line in lines))
 
+def git_sha1(sha1):
+    return f"{sha1:040x}"
+
+def git_has_commit(sha1, cwd=None):
+    commit = git_sha1(sha1)
+    r = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd    = cwd,
+        stdout = subprocess.PIPE,
+        stderr = subprocess.PIPE,
+    )
+    return r.returncode == 0
+
+def git_is_shallow(cwd=None):
+    r = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd    = cwd,
+        stdout = subprocess.PIPE,
+        stderr = subprocess.PIPE,
+    )
+    if r.returncode != 0:
+        return False
+    return r.stdout.decode("UTF-8", errors="ignore").strip() == "true"
+
+def git_fetch_sha1(sha1, branch=None, cwd=None):
+    if git_has_commit(sha1, cwd=cwd):
+        return
+    commit = git_sha1(sha1)
+    fetch_cmd = ["git", "fetch", "--tags"]
+    if git_is_shallow(cwd=cwd):
+        fetch_cmd.append("--unshallow")
+    fetch_cmd += ["origin"]
+    if branch is not None:
+        fetch_cmd.append(branch)
+    subprocess_check_output(fetch_cmd, cwd=cwd)
+    if git_has_commit(sha1, cwd=cwd):
+        return
+    subprocess_check_output(["git", "fetch", "--tags", "origin", commit], cwd=cwd)
+
 def git_checkout(sha1=None, tag=None, quiet=False, cwd=None):
     assert not ((sha1 is None) and (tag is None))
     checkout_cmd = ["git", "-c", "advice.detachedHead=false", "checkout"]
     if quiet:
         checkout_cmd.append("--quiet")
     if sha1 is not None:
-        subprocess_check_output(checkout_cmd + [f"{sha1:07x}"], cwd=cwd)
+        subprocess_check_output(checkout_cmd + [git_sha1(sha1)], cwd=cwd)
     if tag is not None:
         sha1_tag_cmd = ["git", "rev-list", "-n 1", tag]
         sha1_tag     = subprocess_check_output(sha1_tag_cmd, cwd=cwd).strip()
@@ -373,6 +412,7 @@ def litex_setup_init_repos(config="standard", tag=None, dev_mode=False):
             # Use specific SHA1 (Optional).
             if not checked_out and repo.sha1 is not None:
                 try:
+                    git_fetch_sha1(repo.sha1, branch=repo.branch, cwd=repo_path)
                     git_checkout(sha1=repo.sha1, cwd=repo_path)
                 except subprocess.CalledProcessError:
                     git_init_error(name, repo_path, f"checkout SHA1 {repo.sha1:07x} in")
@@ -436,6 +476,7 @@ def litex_setup_update_repos(config="standard", tag=None):
         # Use specific SHA1 (Optional).
         if not checked_out and repo.sha1 is not None:
             try:
+                git_fetch_sha1(repo.sha1, branch=repo.branch, cwd=repo_path)
                 git_checkout(sha1=repo.sha1, quiet=True, cwd=repo_path)
             except subprocess.CalledProcessError:
                 git_update_error(name, repo_path, f"checkout SHA1 {repo.sha1:07x} in")
