@@ -482,7 +482,7 @@ class SoCBusHandler(LiteXModule):
         is_in = True
         if not (region.origin >= container.origin):
             is_in = False
-        if not ((region.origin + region.size) <= (container.origin + container.size)):
+        if not (self._region_overlap_end(region) <= (container.origin + container.size)):
             is_in = False
         return is_in
 
@@ -908,6 +908,17 @@ class SoCBusHandler(LiteXModule):
                 if region_added:
                     self.regions.pop(name, None)
                 raise SoCError()
+        slave_regions = {slave_name: self.regions[slave_name] for slave_name in self.slaves}
+        overlap_name = self.check_region_overlap(region, slave_regions, check_linker=True)
+        if overlap_name is not None:
+            self.logger.error("{} Bus Slave Region overlaps decoded Slave {}:".format(
+                colorer(name, color="red"),
+                colorer(overlap_name)))
+            self.logger.error(str(region))
+            self.logger.error(str(slave_regions[overlap_name]))
+            if region_added:
+                self.regions.pop(name, None)
+            raise SoCError()
         try:
             if strip_origin:
                 slave = self.add_offset(name, slave, self.regions[name].origin)
@@ -930,20 +941,16 @@ class SoCBusHandler(LiteXModule):
     def add_peripheral(self, name=None, peripheral=None, region=None):
         self.add_slave(name=name, slave=peripheral, region=region)
 
-    def get_address_width(self, standard):
-        standard_from = self.standard
-        standard_to   = standard
+    def get_address_width(self, standard, addressing=None):
+        if addressing is None:
+            addressing = "word" if standard == "wishbone" else "byte"
 
-        # AXI or AXI-Lite SoC Bus and Wishbone requested:
-        if standard_from in ["axi", "axi-lite"] and standard_to in ["wishbone"]:
-            address_shift = log2_int(self.data_width//8)
-            return self.address_width - address_shift
-        # Wishbone SoC Bus and AXI, AXI-Lite requested:
-        if standard_from in ["wishbone"] and standard_to in ["axi", "axi-lite"]:
-            address_shift = log2_int(self.data_width//8)
-            return self.address_width + address_shift
-        # Else just return address_width:
-        return self.address_width
+        address_shift = log2_int(self.data_width//8)
+        source_shift = address_shift if (
+            (self.standard == "wishbone") and (self.addressing == "word")) else 0
+        target_shift = address_shift if (
+            (standard == "wishbone") and (addressing == "word")) else 0
+        return self.address_width + source_shift - target_shift
 
     def do_finalize(self):
         interconnect_p2p_cls = {
@@ -965,10 +972,16 @@ class SoCBusHandler(LiteXModule):
         self._interconnect = None
         if len(self.masters) and len(self.slaves):
             slave_name = next(iter(self.slaves))
-            # If 1 bus_master, 1 bus_slave and no address translation, use InterconnectPointToPoint.
+            slave_region = self.regions[slave_name]
+            unconditional_region = (
+                not slave_region.decode or
+                ((slave_region.origin == 0) and (slave_region.size_pow2 == 2**self.address_width))
+            )
+            # Point-to-point has no decoder or timeout, so only use it when neither is required.
             if ((len(self.masters) == 1)  and
                 (len(self.slaves)  == 1)  and
-                (self.regions[slave_name].origin == 0)):
+                unconditional_region      and
+                (self.timeout is None)):
                 self._interconnect = interconnect_p2p_cls(
                     master = next(iter(self.masters.values())),
                     slave  = next(iter(self.slaves.values())))
@@ -1271,9 +1284,10 @@ class SoCIRQHandler(SoCLocHandler):
         self.enabled = False
 
         # Check IRQ Number.
-        if n_irqs > 32:
+        if ((not isinstance(n_irqs, int)) or isinstance(n_irqs, bool) or
+            not (0 <= n_irqs <= 32)):
             self.logger.error("Unsupported IRQs number: {} supported are: {:s}".format(
-                colorer(n_irqs, color="red"), colorer("Up to 32", color="green")))
+                colorer(n_irqs, color="red"), colorer("Integer from 0 to 32", color="green")))
             raise SoCError()
 
         # Create IRQ Handler.
@@ -2775,12 +2789,16 @@ class LiteXSoC(SoC):
 
     # Add SPI Master --------------------------------------------------------------------------------
     def add_spi_master(self, name="spimaster", pads=None, data_width=8, spi_clk_freq=1e6, with_clk_divider=True, **kwargs):
+        spi_clk_freq = int(spi_clk_freq)
+        if spi_clk_freq <= 0:
+            self.logger.error("SPI Master {} {}: must be positive.".format(
+                colorer("spi_clk_freq"), colorer(spi_clk_freq, color="red")))
+            raise SoCError()
+
         # Imports.
         from litex.soc.cores.spi import SPIMaster
 
         self.check_if_exists(f"{name}")
-
-        spi_clk_freq = int(spi_clk_freq)
 
         if pads is None:
             pads = self.platform.request(name)
@@ -3034,7 +3052,7 @@ class LiteXSoC(SoC):
                 if "read" in mode:
                     bus = wishbone.Interface(
                         data_width = soc.bus.data_width,
-                        adr_width  = soc.bus.get_address_width(standard="wishbone"),
+                        adr_width  = soc.bus.get_address_width(standard="wishbone", addressing="word"),
                         addressing = "word",
                         mode = "w",
                     )
@@ -3047,7 +3065,7 @@ class LiteXSoC(SoC):
                 if "write" in mode:
                     bus = wishbone.Interface(
                         data_width = soc.bus.data_width,
-                        adr_width  = soc.bus.get_address_width(standard="wishbone"),
+                        adr_width  = soc.bus.get_address_width(standard="wishbone", addressing="word"),
                         addressing = "word",
                         mode = "r",
                     )
@@ -3153,7 +3171,7 @@ class LiteXSoC(SoC):
             self.check_if_exists(f"{name}_sector2mem")
             bus = wishbone.Interface(
                 data_width = self.bus.data_width,
-                adr_width  = self.bus.get_address_width(standard="wishbone"),
+                adr_width  = self.bus.get_address_width(standard="wishbone", addressing="word"),
                 addressing = "word",
                 mode       = "w",
             )
@@ -3171,7 +3189,7 @@ class LiteXSoC(SoC):
             self.check_if_exists(f"{name}_mem2sector")
             bus = wishbone.Interface(
                 data_width = self.bus.data_width,
-                adr_width  = self.bus.get_address_width(standard="wishbone"),
+                adr_width  = self.bus.get_address_width(standard="wishbone", addressing="word"),
                 addressing = "word",
                 mode       = "r",
             )
