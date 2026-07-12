@@ -987,6 +987,14 @@ class TestSoCCSRHandler(unittest.TestCase):
 
 
 class TestSoCIRQHandler(unittest.TestCase):
+    def test_irq_handler_rejects_invalid_irq_counts(self):
+        for n_irqs in [-1, 1.5, True]:
+            with self.subTest(n_irqs=n_irqs):
+                with _assert_raises_soc_error(self):
+                    SoCIRQHandler(n_irqs=n_irqs)
+
+        self.assertEqual(SoCIRQHandler(n_irqs=0).n_locs, 0)
+
     def test_irq_handler_requires_enable_before_add(self):
         irq = SoCIRQHandler(n_irqs=4)
 

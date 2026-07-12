@@ -1284,9 +1284,10 @@ class SoCIRQHandler(SoCLocHandler):
         self.enabled = False
 
         # Check IRQ Number.
-        if n_irqs > 32:
+        if ((not isinstance(n_irqs, int)) or isinstance(n_irqs, bool) or
+            not (0 <= n_irqs <= 32)):
             self.logger.error("Unsupported IRQs number: {} supported are: {:s}".format(
-                colorer(n_irqs, color="red"), colorer("Up to 32", color="green")))
+                colorer(n_irqs, color="red"), colorer("Integer from 0 to 32", color="green")))
             raise SoCError()
 
         # Create IRQ Handler.
