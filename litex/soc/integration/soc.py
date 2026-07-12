@@ -2789,12 +2789,16 @@ class LiteXSoC(SoC):
 
     # Add SPI Master --------------------------------------------------------------------------------
     def add_spi_master(self, name="spimaster", pads=None, data_width=8, spi_clk_freq=1e6, with_clk_divider=True, **kwargs):
+        spi_clk_freq = int(spi_clk_freq)
+        if spi_clk_freq <= 0:
+            self.logger.error("SPI Master {} {}: must be positive.".format(
+                colorer("spi_clk_freq"), colorer(spi_clk_freq, color="red")))
+            raise SoCError()
+
         # Imports.
         from litex.soc.cores.spi import SPIMaster
 
         self.check_if_exists(f"{name}")
-
-        spi_clk_freq = int(spi_clk_freq)
 
         if pads is None:
             pads = self.platform.request(name)

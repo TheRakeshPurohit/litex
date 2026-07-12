@@ -1431,6 +1431,17 @@ class TestSoC(unittest.TestCase):
         with _assert_raises_soc_error(self):
             soc.add_uartbone(baudrate=0)
 
+    def test_spi_master_rejects_invalid_clock_before_core_creation(self):
+        for spi_clk_freq in [0, -1]:
+            with self.subTest(spi_clk_freq=spi_clk_freq):
+                soc  = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+                pads = Record([("clk", 1), ("cs_n", 1), ("mosi", 1), ("miso", 1)])
+
+                with _assert_raises_soc_error(self):
+                    soc.add_spi_master(pads=pads, spi_clk_freq=spi_clk_freq)
+
+                self.assertFalse(hasattr(soc, "spimaster"))
+
     def test_spi_sdcard_rejects_invalid_clock_before_imports(self):
         soc = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
 
