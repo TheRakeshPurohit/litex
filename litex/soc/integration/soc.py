@@ -941,20 +941,16 @@ class SoCBusHandler(LiteXModule):
     def add_peripheral(self, name=None, peripheral=None, region=None):
         self.add_slave(name=name, slave=peripheral, region=region)
 
-    def get_address_width(self, standard):
-        standard_from = self.standard
-        standard_to   = standard
+    def get_address_width(self, standard, addressing=None):
+        if addressing is None:
+            addressing = "word" if standard == "wishbone" else "byte"
 
-        # AXI or AXI-Lite SoC Bus and Wishbone requested:
-        if standard_from in ["axi", "axi-lite"] and standard_to in ["wishbone"]:
-            address_shift = log2_int(self.data_width//8)
-            return self.address_width - address_shift
-        # Wishbone SoC Bus and AXI, AXI-Lite requested:
-        if standard_from in ["wishbone"] and standard_to in ["axi", "axi-lite"]:
-            address_shift = log2_int(self.data_width//8)
-            return self.address_width + address_shift
-        # Else just return address_width:
-        return self.address_width
+        address_shift = log2_int(self.data_width//8)
+        source_shift = address_shift if (
+            (self.standard == "wishbone") and (self.addressing == "word")) else 0
+        target_shift = address_shift if (
+            (standard == "wishbone") and (addressing == "word")) else 0
+        return self.address_width + source_shift - target_shift
 
     def do_finalize(self):
         interconnect_p2p_cls = {
@@ -3051,7 +3047,7 @@ class LiteXSoC(SoC):
                 if "read" in mode:
                     bus = wishbone.Interface(
                         data_width = soc.bus.data_width,
-                        adr_width  = soc.bus.get_address_width(standard="wishbone"),
+                        adr_width  = soc.bus.get_address_width(standard="wishbone", addressing="word"),
                         addressing = "word",
                         mode = "w",
                     )
@@ -3064,7 +3060,7 @@ class LiteXSoC(SoC):
                 if "write" in mode:
                     bus = wishbone.Interface(
                         data_width = soc.bus.data_width,
-                        adr_width  = soc.bus.get_address_width(standard="wishbone"),
+                        adr_width  = soc.bus.get_address_width(standard="wishbone", addressing="word"),
                         addressing = "word",
                         mode = "r",
                     )
@@ -3170,7 +3166,7 @@ class LiteXSoC(SoC):
             self.check_if_exists(f"{name}_sector2mem")
             bus = wishbone.Interface(
                 data_width = self.bus.data_width,
-                adr_width  = self.bus.get_address_width(standard="wishbone"),
+                adr_width  = self.bus.get_address_width(standard="wishbone", addressing="word"),
                 addressing = "word",
                 mode       = "w",
             )
@@ -3188,7 +3184,7 @@ class LiteXSoC(SoC):
             self.check_if_exists(f"{name}_mem2sector")
             bus = wishbone.Interface(
                 data_width = self.bus.data_width,
-                adr_width  = self.bus.get_address_width(standard="wishbone"),
+                adr_width  = self.bus.get_address_width(standard="wishbone", addressing="word"),
                 addressing = "word",
                 mode       = "r",
             )

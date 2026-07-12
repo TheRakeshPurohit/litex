@@ -338,11 +338,20 @@ class TestSoCBusHandler(unittest.TestCase):
 
     def test_address_width_conversion_between_bus_standards(self):
         wishbone_bus = SoCBusHandler(standard="wishbone", data_width=32, address_width=32)
+        wishbone_byte_bus = SoCBusHandler(
+            standard      = "wishbone",
+            data_width    = 32,
+            address_width = 32,
+            addressing    = "byte",
+        )
         axi_bus      = SoCBusHandler(standard="axi",      data_width=64, address_width=32)
 
         self.assertEqual(wishbone_bus.get_address_width("wishbone"), 32)
         self.assertEqual(wishbone_bus.get_address_width("axi-lite"), 34)
         self.assertEqual(wishbone_bus.get_address_width("axi"),      34)
+        self.assertEqual(wishbone_byte_bus.get_address_width("wishbone"), 30)
+        self.assertEqual(wishbone_byte_bus.get_address_width("wishbone", addressing="byte"), 32)
+        self.assertEqual(wishbone_byte_bus.get_address_width("axi"), 32)
         self.assertEqual(axi_bus.get_address_width("axi"),           32)
         self.assertEqual(axi_bus.get_address_width("wishbone"),      29)
 
