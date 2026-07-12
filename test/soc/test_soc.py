@@ -434,6 +434,23 @@ class TestSoCBusHandler(unittest.TestCase):
         self.assertIsNone(bus.check_regions_overlap(regions))
         self.assertEqual(bus.check_regions_overlap(regions, check_linker=True), ("boot", "linker"))
 
+    def test_overlapping_slave_regions_reject_linker_overlay(self):
+        bus = SoCBusHandler()
+        bus.add_slave("ram", wishbone.Interface(), SoCRegion(
+            origin = 0x00000000,
+            size   = 0x1000,
+        ))
+
+        with _assert_raises_soc_error(self):
+            bus.add_slave("alias", wishbone.Interface(), SoCRegion(
+                origin = 0x00000000,
+                size   = 0x1000,
+                linker = True,
+            ))
+
+        self.assertNotIn("alias", bus.slaves)
+        self.assertNotIn("alias", bus.regions)
+
     def test_auto_allocation_avoids_existing_linker_regions(self):
         bus = SoCBusHandler()
         bus.add_region("io", SoCIORegion(origin=0x80000000, size=0x10000))

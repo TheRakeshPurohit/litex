@@ -908,6 +908,17 @@ class SoCBusHandler(LiteXModule):
                 if region_added:
                     self.regions.pop(name, None)
                 raise SoCError()
+        slave_regions = {slave_name: self.regions[slave_name] for slave_name in self.slaves}
+        overlap_name = self.check_region_overlap(region, slave_regions, check_linker=True)
+        if overlap_name is not None:
+            self.logger.error("{} Bus Slave Region overlaps decoded Slave {}:".format(
+                colorer(name, color="red"),
+                colorer(overlap_name)))
+            self.logger.error(str(region))
+            self.logger.error(str(slave_regions[overlap_name]))
+            if region_added:
+                self.regions.pop(name, None)
+            raise SoCError()
         try:
             if strip_origin:
                 slave = self.add_offset(name, slave, self.regions[name].origin)
