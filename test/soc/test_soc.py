@@ -800,6 +800,35 @@ class TestSoCBusStandardIntegration(unittest.TestCase):
         self.assertEqual(list(bus.masters.keys()), ["master0", "master1"])
         self.assertEqual(list(bus.slaves.keys()),  ["slave0",  "slave1"])
 
+    def test_partial_zero_origin_region_keeps_address_decoder(self):
+        bus    = SoCBusHandler(timeout=8)
+        master = wishbone.Interface()
+        slave  = wishbone.Interface()
+        bus.add_master("master", master)
+        bus.add_slave("slave", slave, SoCRegion(origin=0x00000000, size=0x1000))
+        bus.finalize()
+
+        def generator():
+            yield master.adr.eq(0x1000 // 4)
+            yield master.cyc.eq(1)
+            yield master.stb.eq(1)
+            yield
+            self.assertEqual((yield slave.cyc), 0)
+
+        run_simulation(bus, generator())
+
+    def test_full_address_region_keeps_configured_timeout(self):
+        bus = SoCBusHandler(timeout=8)
+        bus.add_master("master", wishbone.Interface())
+        bus.add_slave("slave", wishbone.Interface(), SoCRegion(
+            origin = 0x00000000,
+            size   = 2**bus.address_width,
+        ))
+
+        bus.finalize()
+
+        self.assertTrue(hasattr(bus._interconnect, "timeout"))
+
     def test_slave_can_use_predeclared_region(self):
         bus = SoCBusHandler()
         bus.add_region("ram", SoCRegion(origin=0x00000000, size=0x1000))

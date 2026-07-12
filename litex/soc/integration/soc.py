@@ -965,10 +965,16 @@ class SoCBusHandler(LiteXModule):
         self._interconnect = None
         if len(self.masters) and len(self.slaves):
             slave_name = next(iter(self.slaves))
-            # If 1 bus_master, 1 bus_slave and no address translation, use InterconnectPointToPoint.
+            slave_region = self.regions[slave_name]
+            unconditional_region = (
+                not slave_region.decode or
+                ((slave_region.origin == 0) and (slave_region.size_pow2 == 2**self.address_width))
+            )
+            # Point-to-point has no decoder or timeout, so only use it when neither is required.
             if ((len(self.masters) == 1)  and
                 (len(self.slaves)  == 1)  and
-                (self.regions[slave_name].origin == 0)):
+                unconditional_region      and
+                (self.timeout is None)):
                 self._interconnect = interconnect_p2p_cls(
                     master = next(iter(self.masters.values())),
                     slave  = next(iter(self.slaves.values())))
