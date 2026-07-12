@@ -482,7 +482,7 @@ class SoCBusHandler(LiteXModule):
         is_in = True
         if not (region.origin >= container.origin):
             is_in = False
-        if not ((region.origin + region.size) <= (container.origin + container.size)):
+        if not (self._region_overlap_end(region) <= (container.origin + container.size)):
             is_in = False
         return is_in
 

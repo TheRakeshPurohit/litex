@@ -479,6 +479,19 @@ class TestSoCBusHandler(unittest.TestCase):
         self.assertTrue(bus.check_region_is_io(SoCRegion(origin=0x80000f00, size=0x100, cached=False)))
         self.assertFalse(bus.check_region_is_io(SoCRegion(origin=0x80001000, size=0x100, cached=False)))
 
+    def test_io_containment_accounts_for_rounded_decode_size(self):
+        bus = SoCBusHandler()
+        bus.add_region("io", SoCIORegion(origin=0x80000000, size=0x1800))
+
+        with _assert_raises_soc_error(self):
+            bus.add_region("device", SoCRegion(
+                origin = 0x80000000,
+                size   = 0x1800,
+                cached = False,
+            ))
+
+        self.assertNotIn("device", bus.regions)
+
     def test_io_region_overlap_uses_exact_size(self):
         bus = SoCBusHandler()
 
