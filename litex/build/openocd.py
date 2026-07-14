@@ -140,6 +140,20 @@ class OpenOCD(GenericProgrammer):
         ir       = self.get_ir(chain, config)
         endstate = self.get_endstate(config)
         cfg = """
+if {[catch {binary format c 0x41}]} {
+    # Jim Tcl builds without the binary command (e.g. OpenOCD 0.11): format %c is byte-exact
+    # there (strings have no UTF-8 representation), so it can build the byte stream directly.
+    proc jtagstream_byte {value} {
+        return [format %c $value]
+    }
+} else {
+    # Jim Tcl builds with UTF-8 string representation: format %c would encode bytes >= 0x80
+    # as two bytes, corrupting the stream; use the byte-exact binary command instead.
+    proc jtagstream_byte {value} {
+        return [binary format c $value]
+    }
+}
+
 proc jtagstream_word {word} {
     set word [string trim $word]
     if {[string equal [string range $word 0 1] "0x"] || [string equal [string range $word 0 1] "0X"]} {
@@ -185,7 +199,7 @@ proc jtagstream_poll {tap tx n} {
         set readable [expr { $rxj & 0x200 }]
         set writable [expr { $rxj & $writable }]
         if {$readable} {
-            append rx [binary format c [expr { ($rxj >> 1) & 0xff }]]
+            append rx [jtagstream_byte [expr { ($rxj >> 1) & 0xff }]]
         }
     }
     return [list $rx $readable $writable]
