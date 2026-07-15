@@ -16,6 +16,7 @@ from litex.gen import *
 
 from litex.soc.interconnect.csr import *
 from litex.soc.interconnect import stream
+from litex.soc.interconnect import wishbone
 from litex.soc.cores.code_tmds import TMDSEncoder
 
 from litex.build.io import SDROutput, DDROutput
@@ -1030,8 +1031,13 @@ class VideoFrameBuffer(LiteXModule):
         # # #
 
         # Video DMA.
-        from litedram.frontend.dma import LiteDRAMDMAReader
-        self.dma = LiteDRAMDMAReader(dram_port, fifo_depth=fifo_depth//(dram_port.data_width//8), fifo_buffered=True)
+        dma_fifo_depth = fifo_depth//(dram_port.data_width//8)
+        if isinstance(dram_port, wishbone.Interface):
+            from litex.soc.cores.dma import WishboneDMAReader
+            self.dma = WishboneDMAReader(dram_port, endianness="big", fifo_depth=dma_fifo_depth)
+        else:
+            from litedram.frontend.dma import LiteDRAMDMAReader
+            self.dma = LiteDRAMDMAReader(dram_port, fifo_depth=dma_fifo_depth, fifo_buffered=True)
         self.dma.add_csr(
             default_base   = base,
             default_length = video_framebuffer_size(hres, vres, format),
