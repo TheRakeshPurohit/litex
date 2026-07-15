@@ -110,15 +110,6 @@ class _CRGWithEfinityPLL:
 def _make_bus_interface(interface_cls, data_width=32, address_width=32):
     return interface_cls(data_width=data_width, address_width=address_width)
 
-def _make_axi_lite_pads(data_width=32, address_width=32):
-    return Record([
-        ("awvalid", 1), ("awready", 1), ("awaddr", address_width), ("awprot", 3),
-        ("wvalid",  1), ("wready",  1), ("wdata",  data_width),    ("wstrb", data_width//8),
-        ("bvalid",  1), ("bready",  1), ("bresp",  2),
-        ("arvalid", 1), ("arready", 1), ("araddr", address_width), ("arprot", 3),
-        ("rvalid",  1), ("rready",  1), ("rdata",  data_width),    ("rresp", 2),
-    ])
-
 class TestSoCCoreCompatibility(unittest.TestCase):
     def test_soc_core_reexports_canonical_soc_api(self):
         self.assertIs(soc_core.mem_decoder,      mem_decoder)
@@ -1165,44 +1156,6 @@ class TestSoC(unittest.TestCase):
         soc.add_hyperram(number=1, size=0x1000, with_csr=False)
 
         self.assertEqual(platform.request_calls, [("hyperram", 1, False)])
-
-    def test_add_axi_master_maps_requested_axi_lite_pads(self):
-        platform = _FakePlatform()
-        platform.requests["axi_master"] = _make_axi_lite_pads()
-        soc = SoC(platform, sys_clk_freq=100e6, bus_standard="axi-lite")
-
-        interface = soc.add_axi_master(origin=0x20000000, size=0x10000)
-
-        self.assertIs(soc.axi_master, interface)
-        self.assertIs(soc.bus.slaves["axi_master"], interface)
-        self.assertIsInstance(interface, axi.AXILiteInterface)
-        self.assertEqual(soc.bus.regions["axi_master"].origin, 0x20000000)
-        self.assertFalse(soc.bus.regions["axi_master"].cached)
-        self.assertEqual(soc.bus.io_regions["axi_master_io"].origin, 0x20000000)
-        self.assertEqual(platform.request_calls, [("axi_master", None, False)])
-
-    def test_add_axi_master_adapts_to_wishbone_soc_bus(self):
-        soc = SoC(_FakePlatform(), sys_clk_freq=100e6, bus_standard="wishbone")
-
-        interface = soc.add_axi_master(
-            pads   = _make_axi_lite_pads(),
-            origin = 0x20000000,
-            size   = 0x10000,
-        )
-
-        self.assertIs(soc.axi_master, interface)
-        self.assertIsInstance(interface, axi.AXILiteInterface)
-        self.assertIsInstance(soc.bus.slaves["axi_master"], wishbone.Interface)
-        self.assertEqual(soc.bus.regions["axi_master"].origin, 0x20000000)
-
-    def test_add_axi_master_rejects_unknown_bus_standard(self):
-        soc = SoC(_FakePlatform(), sys_clk_freq=100e6)
-
-        with _assert_raises_soc_error(self):
-            soc.add_axi_master(
-                pads         = _make_axi_lite_pads(),
-                bus_standard = "wishbone",
-            )
 
     def test_add_hyperram_rejects_derived_kwargs(self):
         soc = SoC(_FakePlatform(), sys_clk_freq=100e6)

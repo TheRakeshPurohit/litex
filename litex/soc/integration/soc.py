@@ -1633,41 +1633,6 @@ class SoC(LiteXModule):
             self.bus.regions[region_name]))
         return hyperram
 
-    # Add AXI Master ------------------------------------------------------------------------------
-    def add_axi_master(self, name="axi_master", pads=None, origin=None, size=0x10000,
-        bus_standard="axi-lite", data_width=32, address_width=32, id_width=1,
-        clock_domain="sys", mode="rw", **kwargs):
-        if bus_standard not in ["axi-lite", "axi"]:
-            self.logger.error("AXI Master {} {}.".format(
-                colorer("bus_standard", color="red"), colorer(bus_standard, color="red")))
-            raise SoCError()
-        if pads is None:
-            pads = self.platform.request(name)
-        self.check_if_exists(name)
-
-        interface_cls = {
-            "axi-lite": axi.AXILiteInterface,
-            "axi"     : axi.AXIInterface,
-        }[bus_standard]
-        interface_kwargs = dict(
-            data_width    = data_width,
-            address_width = address_width,
-            clock_domain  = clock_domain,
-            mode          = mode,
-            **kwargs,
-        )
-        if interface_cls is axi.AXIInterface:
-            interface_kwargs["id_width"] = id_width
-        interface = interface_cls(**interface_kwargs)
-
-        region = SoCRegion(origin=origin, size=size, cached=False)
-        if not region.cached and region.origin is not None and not self.bus.check_region_is_io(region):
-            self.bus.add_region(f"{name}_io", SoCIORegion(origin=region.origin, size=region.size))
-        self.bus.add_slave(name=name, slave=interface, region=region, clock_domain=clock_domain)
-        self.comb += interface.connect_to_pads(pads, mode="master")
-        setattr(self, name, interface)
-        return interface
-
     # Add CSR Bridge -------------------------------------------------------------------------------
     def add_csr_bridge(self, name="csr", origin=None, with_register=False):
         csr_bridge_cls = {
