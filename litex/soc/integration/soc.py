@@ -1633,6 +1633,41 @@ class SoC(LiteXModule):
             self.bus.regions[region_name]))
         return hyperram
 
+    # Add AXI Master ------------------------------------------------------------------------------
+    def add_axi_master(self, name="axi_master", pads=None, origin=None, size=0x10000,
+        bus_standard="axi-lite", data_width=32, address_width=32, id_width=1,
+        clock_domain="sys", mode="rw", **kwargs):
+        if bus_standard not in ["axi-lite", "axi"]:
+            self.logger.error("AXI Master {} {}.".format(
+                colorer("bus_standard", color="red"), colorer(bus_standard, color="red")))
+            raise SoCError()
+        if pads is None:
+            pads = self.platform.request(name)
+        self.check_if_exists(name)
+
+        interface_cls = {
+            "axi-lite": axi.AXILiteInterface,
+            "axi"     : axi.AXIInterface,
+        }[bus_standard]
+        interface_kwargs = dict(
+            data_width    = data_width,
+            address_width = address_width,
+            clock_domain  = clock_domain,
+            mode          = mode,
+            **kwargs,
+        )
+        if interface_cls is axi.AXIInterface:
+            interface_kwargs["id_width"] = id_width
+        interface = interface_cls(**interface_kwargs)
+
+        region = SoCRegion(origin=origin, size=size, cached=False)
+        if not region.cached and region.origin is not None and not self.bus.check_region_is_io(region):
+            self.bus.add_region(f"{name}_io", SoCIORegion(origin=region.origin, size=region.size))
+        self.bus.add_slave(name=name, slave=interface, region=region, clock_domain=clock_domain)
+        self.comb += interface.connect_to_pads(pads, mode="master")
+        setattr(self, name, interface)
+        return interface
+
     # Add CSR Bridge -------------------------------------------------------------------------------
     def add_csr_bridge(self, name="csr", origin=None, with_register=False):
         csr_bridge_cls = {
@@ -3452,22 +3487,36 @@ class LiteXSoC(SoC):
         self.comb += vt.source.connect(phy if isinstance(phy, stream.Endpoint) else phy.sink)
 
     # Add Video Framebuffer ------------------------------------------------------------------------
-    def _get_video_framebuffer_default_region(self, name, size):
-        main_ram = self.bus.regions.get("main_ram", None)
-        if main_ram is None:
-            return SoCRegion(
-                origin = 0x40c00000,
-                size   = size,
-                linker = True)
+    def _get_video_framebuffer_memory_name(self, memory_name=None):
+        if memory_name is not None:
+            return memory_name
+        if "main_ram" in self.bus.regions:
+            return "main_ram"
+        if hasattr(self, "hyperram") and "hyperram" in self.bus.regions:
+            return "hyperram"
+        return "main_ram"
 
-        size_pow2    = 2**log2_int(size, False)
-        main_ram_end = main_ram.origin + main_ram.size
-        origin       = (main_ram_end - size_pow2) & ~(size_pow2 - 1)
-        if origin < main_ram.origin:
-            self.logger.error("{} of size {} does not fit in main_ram:".format(
+    def _get_video_framebuffer_default_region(self, name, size, memory_name="main_ram"):
+        memory = self.bus.regions.get(memory_name, None)
+        if memory is None:
+            if memory_name == "main_ram":
+                return SoCRegion(
+                    origin = 0x40c00000,
+                    size   = size,
+                    linker = True)
+            self.logger.error("Video framebuffer memory region {} {}.".format(
+                colorer(memory_name, color="red"), colorer("not found", color="red")))
+            raise SoCError()
+
+        size_pow2  = 2**log2_int(size, False)
+        memory_end = memory.origin + memory.size
+        origin     = (memory_end - size_pow2) & ~(size_pow2 - 1)
+        if origin < memory.origin:
+            self.logger.error("{} of size {} does not fit in {}:".format(
                 colorer(name, color="red"),
-                colorer("0x{:08x}".format(size))))
-            self.logger.error(str(main_ram))
+                colorer("0x{:08x}".format(size)),
+                colorer(memory_name)))
+            self.logger.error(str(memory))
             raise SoCError()
 
         return SoCRegion(
@@ -3475,22 +3524,32 @@ class LiteXSoC(SoC):
             size   = size,
             linker = True)
 
-    def _get_video_framebuffer_base(self, name, size):
+    def _get_video_framebuffer_base(self, name, size, memory_name="main_ram"):
         base = self.mem_map.get(name, None)
         if base is not None:
             return base
 
-        self.bus.add_region(name, self._get_video_framebuffer_default_region(name, size))
+        self.bus.add_region(name, self._get_video_framebuffer_default_region(
+            name, size, memory_name))
         return self.bus.regions[name].origin
 
-    def add_video_framebuffer(self, name="video_framebuffer", phy=None, timings="800x600@60Hz", clock_domain="sys", format="rgb888", fifo_depth=64*KILOBYTE):
+    def _get_video_framebuffer_port(self, port=None):
+        if port is not None:
+            return port
+        if hasattr(self, "sdram"):
+            return self.sdram.crossbar.get_port()
+        if hasattr(self, "hyperram"):
+            return self.hyperram.bus
+        self.logger.error("Video framebuffer requires {} or {}.".format(
+            colorer("sdram", color="red"), colorer("port", color="red")))
+        raise SoCError()
+
+    def add_video_framebuffer(self, name="video_framebuffer", phy=None, timings="800x600@60Hz", clock_domain="sys", format="rgb888", fifo_depth=64*KILOBYTE, port=None, memory_name=None):
         if phy is None:
             self.logger.error("Video framebuffer requires {}.".format(colorer("phy", color="red")))
             raise SoCError()
-        if not hasattr(self, "sdram"):
-            self.logger.error("Video framebuffer requires {}.".format(
-                colorer("sdram", color="red")))
-            raise SoCError()
+        port = self._get_video_framebuffer_port(port)
+        memory_name = self._get_video_framebuffer_memory_name(memory_name)
         try:
             _, hres, vres = parse_video_timing_resolution(timings)
         except ValueError as e:
@@ -3510,8 +3569,8 @@ class LiteXSoC(SoC):
         # Video FrameBuffer.
         self.check_if_exists(name)
         framebuffer_size = video_framebuffer_size(hres, vres, format)
-        base = self._get_video_framebuffer_base(name, framebuffer_size)
-        vfb = VideoFrameBuffer(self.sdram.crossbar.get_port(),
+        base = self._get_video_framebuffer_base(name, framebuffer_size, memory_name)
+        vfb = VideoFrameBuffer(port,
             hres                  = hres,
             vres                  = vres,
             base                  = base,
