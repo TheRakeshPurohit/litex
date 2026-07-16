@@ -3457,7 +3457,7 @@ class LiteXSoC(SoC):
             return memory_name
         if "main_ram" in self.bus.regions:
             return "main_ram"
-        if hasattr(self, "hyperram") and "hyperram" in self.bus.regions:
+        if "hyperram" in self.bus.regions:
             return "hyperram"
         return "main_ram"
 
@@ -3498,23 +3498,33 @@ class LiteXSoC(SoC):
             name, size, memory_name))
         return self.bus.regions[name].origin
 
-    def _get_video_framebuffer_port(self, port=None):
+    def _get_video_framebuffer_port(self, name, memory_name, port=None):
         if port is not None:
             return port
-        if hasattr(self, "sdram"):
+        if hasattr(self, "sdram") and memory_name == "main_ram":
             return self.sdram.crossbar.get_port()
-        if hasattr(self, "hyperram"):
-            return self.hyperram.bus
-        self.logger.error("Video framebuffer requires {} or {}.".format(
-            colorer("sdram", color="red"), colorer("port", color="red")))
+        if memory_name in self.bus.regions:
+            dma_bus = getattr(self, "dma_bus", self.bus)
+            port = wishbone.Interface(
+                data_width = dma_bus.data_width,
+                adr_width  = dma_bus.get_address_width(standard="wishbone", addressing="word"),
+                addressing = "word",
+                mode       = "r",
+            )
+            dma_bus.add_master(name=f"{name}_dma", master=port)
+            return port
+        self.logger.error("Video framebuffer memory region {} {} and no {} was provided.".format(
+            colorer(memory_name, color="red"),
+            colorer("not found", color="red"),
+            colorer("port", color="red")))
         raise SoCError()
 
     def add_video_framebuffer(self, name="video_framebuffer", phy=None, timings="800x600@60Hz", clock_domain="sys", format="rgb888", fifo_depth=64*KILOBYTE, port=None, memory_name=None):
         if phy is None:
             self.logger.error("Video framebuffer requires {}.".format(colorer("phy", color="red")))
             raise SoCError()
-        port = self._get_video_framebuffer_port(port)
         memory_name = self._get_video_framebuffer_memory_name(memory_name)
+        port = self._get_video_framebuffer_port(name, memory_name, port)
         try:
             _, hres, vres = parse_video_timing_resolution(timings)
         except ValueError as e:
