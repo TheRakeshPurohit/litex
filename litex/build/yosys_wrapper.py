@@ -20,6 +20,7 @@ class YosysWrapper():
         yosys_opts   = "",
         yosys_cmds   = [],
         use_slang    = False,
+        slang_plugin = False,
         slang_opts   = "",
         synth_format = "json",
         **kwargs)    :
@@ -42,6 +43,8 @@ class YosysWrapper():
             optionals commands called before synth_xxx
         use_slang : bool
             use Yosys's slang frontend for SystemVerilog sources.
+        slang_plugin : bool
+            load the legacy external slang plugin before using read_slang.
         slang_opts : str
             options to pass to read_slang.
         synth_format : str
@@ -64,7 +67,8 @@ class YosysWrapper():
         self._yosys_opts   = yosys_opts
         self._yosys_cmds   = yosys_cmds
         self._quiet        = "" if not kwargs.pop("quiet", False) else '-Qq'
-        self._use_slang    = use_slang or getattr(platform, "yosys_use_slang", False)
+        self._slang_plugin = slang_plugin or getattr(platform, "yosys_slang_plugin", False)
+        self._use_slang    = use_slang or self._slang_plugin or getattr(platform, "yosys_use_slang", False)
         self._slang_opts   = slang_opts or getattr(platform, "yosys_slang_opts", "")
 
         self._target = target
@@ -100,7 +104,8 @@ class YosysWrapper():
         if slang_files:
             opts  = f" {self._slang_opts}" if self._slang_opts else ""
             files = " ".join(slang_files)
-            reads.insert(0, "plugin -i slang")
+            if self._slang_plugin:
+                reads.insert(0, "plugin -i slang")
             reads.append(f"read_slang{opts}{includes} {files}")
         return "\n".join(reads)
 
@@ -163,6 +168,7 @@ def yosys_args(parser):
     parser.add_argument("--yosys-abc9",      action="store_true", help="Use Yosys's abc9 mode.")
     parser.add_argument("--yosys-flow3",     action="store_true", help="Use Yosys's abc9 mode with the flow3 script.")
     parser.add_argument("--yosys-slang",     action="store_true", help="Use Yosys's slang SystemVerilog frontend.")
+    parser.add_argument("--yosys-slang-plugin", action="store_true", help="Load the legacy external slang plugin (for Yosys < 0.67).")
     parser.add_argument("--yosys-quiet",     action="store_true", help="Use Yosys's '-Qq' to be quiet")
 
 def yosys_argdict(args):
@@ -170,6 +176,7 @@ def yosys_argdict(args):
         "nowidelut": args.yosys_nowidelut,
         "abc9":      args.yosys_abc9,
         "flow3":     args.yosys_flow3,
-        "use_slang": args.yosys_slang,
-        "quiet":     args.yosys_quiet,
+        "use_slang":    args.yosys_slang or args.yosys_slang_plugin,
+        "slang_plugin": args.yosys_slang_plugin,
+        "quiet":        args.yosys_quiet,
     }
