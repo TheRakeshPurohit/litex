@@ -16,9 +16,10 @@ from types import SimpleNamespace
 from migen import ClockDomain, Record, Signal
 from migen.sim import run_simulation
 
+from litex.soc.cores.dma import WishboneDMAReader
 from litex.soc.cores.hyperbus import HyperRAM
-from litex.soc.cores.video import video_framebuffer_size
-from litex.soc.interconnect import axi, wishbone
+from litex.soc.cores.video import video_data_layout, video_framebuffer_size
+from litex.soc.interconnect import axi, stream, wishbone
 
 from litex.soc.integration.soc import (
     LiteXSoC,
@@ -109,7 +110,6 @@ class _CRGWithEfinityPLL:
 
 def _make_bus_interface(interface_cls, data_width=32, address_width=32):
     return interface_cls(data_width=data_width, address_width=address_width)
-
 
 class TestSoCCoreCompatibility(unittest.TestCase):
     def test_soc_core_reexports_canonical_soc_api(self):
@@ -242,6 +242,88 @@ class TestSoCVideoFrameBuffer(unittest.TestCase):
         with _assert_raises_soc_error(self):
             soc._get_video_framebuffer_default_region("video_framebuffer", 0x00200000)
 
+    def test_framebuffer_port_can_be_provided_without_sdram(self):
+        soc  = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+        port = wishbone.Interface()
+
+        self.assertIs(soc._get_video_framebuffer_port(
+            "video_framebuffer", "main_ram", port), port)
+
+    def test_framebuffer_port_uses_soc_bus_when_sdram_is_absent(self):
+        cases = [
+            ("wishbone", wishbone.Interface),
+            ("axi-lite", axi.AXILiteInterface),
+            ("axi",      axi.AXIInterface),
+        ]
+
+        for bus_standard, interface_cls in cases:
+            with self.subTest(bus_standard=bus_standard):
+                soc = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6, bus_standard=bus_standard)
+                if bus_standard == "axi":
+                    soc.bus.add_master("cpu", axi.AXIInterface(id_width=4))
+                soc.bus.add_region("hyperram", SoCRegion(origin=0x20000000, size=0x00800000))
+
+                port = soc._get_video_framebuffer_port("video_framebuffer", "hyperram")
+
+                self.assertIsInstance(port, wishbone.Interface)
+                self.assertIsInstance(soc.bus.masters["video_framebuffer_dma"], interface_cls)
+                self.assertEqual(port.mode, "r")
+
+    def test_framebuffer_port_requires_mapped_memory(self):
+        soc = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+
+        with _assert_raises_soc_error(self):
+            soc._get_video_framebuffer_port("video_framebuffer", "hyperram")
+
+        self.assertNotIn("video_framebuffer_dma", soc.bus.masters)
+
+    def test_explicit_hyperram_does_not_use_sdram_port(self):
+        soc        = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+        sdram_port = wishbone.Interface()
+        soc.sdram  = SimpleNamespace(crossbar=SimpleNamespace(get_port=lambda: sdram_port))
+        soc.bus.add_region("hyperram", SoCRegion(origin=0x20000000, size=0x00800000))
+
+        port = soc._get_video_framebuffer_port("video_framebuffer", "hyperram")
+
+        self.assertIsNot(port, sdram_port)
+        self.assertIs(soc.bus.masters["video_framebuffer_dma"], port)
+
+    def test_hyperram_framebuffer_uses_routed_wishbone_dma(self):
+        soc = LiteXSoC(_FakePlatform(), sys_clk_freq=100e6)
+        soc.bus.add_region("hyperram", SoCRegion(origin=0x20000000, size=0x00800000))
+
+        soc.add_video_framebuffer(
+            phy         = stream.Endpoint(video_data_layout),
+            timings     = "640x480@60Hz",
+            fifo_depth  = 64,
+            memory_name = "hyperram",
+        )
+
+        self.assertIsInstance(soc.video_framebuffer.dma, WishboneDMAReader)
+        self.assertIs(
+            soc.video_framebuffer.dma.bus,
+            soc.bus.masters["video_framebuffer_dma"],
+        )
+        self.assertEqual(soc.constants["VIDEO_FRAMEBUFFER_BASE"], 0x20600000)
+
+    def test_framebuffer_memory_name_defaults_to_hyperram_without_main_ram(self):
+        soc = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+        soc.bus.add_region("hyperram", SoCRegion(origin=0x20000000, size=0x00800000))
+
+        self.assertEqual(soc._get_video_framebuffer_memory_name(), "hyperram")
+
+    def test_default_region_can_be_placed_in_hyperram(self):
+        soc = LiteXSoC(_FakePlatform(), sys_clk_freq=1e6)
+        soc.bus.add_region("hyperram", SoCRegion(origin=0x20000000, size=0x00800000))
+
+        framebuffer_size = video_framebuffer_size(800, 600, "rgb888")
+        region = soc._get_video_framebuffer_default_region(
+            "video_framebuffer", framebuffer_size, memory_name="hyperram")
+
+        self.assertEqual(region.origin, 0x20600000)
+        self.assertEqual(region.size,   framebuffer_size)
+        self.assertLessEqual(region.origin + region.size, 0x20800000)
+        self.assertTrue(region.linker)
 
 class TestSoCResetRequests(unittest.TestCase):
     def test_soc_reset_request_registers_source(self):

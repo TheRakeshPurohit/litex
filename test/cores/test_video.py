@@ -20,10 +20,13 @@ from litex.soc.cores.video import (
     VideoTimingGenerator,
     ColorBarsPattern,
     VideoGenericPHY,
+    VideoFrameBuffer,
     video_framebuffer_format_depth,
     video_framebuffer_size,
 )
+from litex.soc.cores.dma import WishboneDMAReader
 from litex.soc.cores.code_tmds import TMDSEncoder, control_tokens
+from litex.soc.interconnect import wishbone
 
 
 # Helpers ------------------------------------------------------------------------------------------
@@ -88,6 +91,14 @@ class TestVideoFrameBufferHelpers(unittest.TestCase):
         self.assertEqual(video_framebuffer_size(640, 480, "rgb888"), 640*480*4)
         self.assertEqual(video_framebuffer_size(640, 480, "rgb565"), 640*480*2)
         self.assertEqual(video_framebuffer_size(13,    2, "mono1"),  2*2)
+
+    def test_wishbone_port_uses_wishbone_dma_reader(self):
+        port = wishbone.Interface(data_width=32)
+
+        framebuffer = VideoFrameBuffer(port, hres=8, vres=4, fifo_depth=64)
+
+        self.assertIsInstance(framebuffer.dma, WishboneDMAReader)
+        self.assertIs(framebuffer.dma.bus, port)
 
 
 # VideoTimingGenerator -----------------------------------------------------------------------------
