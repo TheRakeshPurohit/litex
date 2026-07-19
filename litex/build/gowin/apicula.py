@@ -52,6 +52,17 @@ class GowinApiculaToolchain(YosysNextPNRToolchain):
             devicename = devicename
         )
 
+        # nextpnr's Gowin arch takes no SDC, so --freq is the only way to pass a
+        # timing target; without it nextpnr defaults to 12 MHz. self.clocks is
+        # already populated at finalize, so the target can be set here directly.
+        max_freq = 0
+        for clk, [period, name] in sorted(self.clocks.items(), key=lambda x: x[0].duid):
+            freq = 1e3 / period # Period in ns -> freq in MHz.
+            if freq > max_freq:
+                max_freq = freq
+        if max_freq > 0:
+            self._pnr_opts += f" --freq {round(max_freq, 3)}"
+
         self._packer_opts += "-d {devicename} -o {top}.fs {top}_routed.json".format(
             devicename = devicename,
             top        = self._build_name
