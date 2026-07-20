@@ -1140,10 +1140,20 @@ def _convert_hierarchical(f, ios, name, platform, special_overrides, attr_transl
 
     _collect_raw_statements(ctx.root)
 
+    # Initialize inline flags once for the whole tree. Resetting them inside
+    # _mark_inline's recursion would undo _inline_subtree()'s marks: an inlined
+    # node's children would flip back to non-inline and then be silently
+    # dropped from emission (their parent is inline, so _emit never recurses
+    # into its hier_children).
+    def _reset_inline(node):
+        node.inline = False
+        for child in node.children:
+            _reset_inline(child)
+
+    _reset_inline(ctx.root)
+
     def _mark_inline(node):
         parent_path = _normalize_hier_path(node.path)
-        for child in node.children:
-            child.inline = False
         parent_drivers = set(getattr(node, "raw_self_targets", node.raw_targets))
 
         # Policy 1: parent and child both drive same signal object -> inline child.
