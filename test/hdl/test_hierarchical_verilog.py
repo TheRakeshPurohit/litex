@@ -131,6 +131,30 @@ class _SharedMemoryTop(Module):
         self.comb += self.o.eq(self.reader.dat_r)
 
 
+class _InlineDropLeaf(Module):
+    """Grandchild with real logic and a boundary output."""
+    def __init__(self):
+        self.out = Signal(name="out")
+        self.comb += self.out.eq(1)
+
+
+class _InlineDropChild(Module):
+    def __init__(self):
+        # Owned under this module's path; driven by the parent.
+        self.trigger = Signal(name="trigger")
+        self.submodules.leaf = _InlineDropLeaf()
+
+
+class _InlineDropTop(Module):
+    def __init__(self):
+        self.io = Signal(name="io")
+        self.submodules.child = _InlineDropChild()
+        self.comb += self.io.eq(self.child.leaf.out)
+        # Parent drives a signal owned under the child's path, so the inline
+        # policy inlines the child into the parent.
+        self.comb += self.child.trigger.eq(1)
+
+
 class TestHierarchicalVerilog(unittest.TestCase):
     @staticmethod
     def _module_body(verilog, name):
@@ -277,6 +301,24 @@ class TestHierarchicalVerilog(unittest.TestCase):
         self.assertRegex(leaf_module, r"input\s+wire\s+sys_clk")
         self.assertIn("always @(posedge sys_clk)", leaf_module)
         self.assertIn(".sys_clk(sys_clk)", top_module)
+
+    def test_hierarchical_inlined_child_keeps_grandchild_logic(self):
+        # Regression test for the inline-flag reset bug: _mark_inline reset
+        # every child's inline flag on each recursion, undoing
+        # _inline_subtree()'s marks. A grandchild of an inlined child was
+        # dropped from emission and its output became an undriven register.
+        top = _InlineDropTop()
+
+        old_top = LiteXContext.top
+        try:
+            LiteXContext.top = top
+            verilog = convert(top, ios={top.io}, name="top", hierarchical=True).main_source
+        finally:
+            LiteXContext.top = old_top
+
+        # The grandchild's driver must be emitted somewhere in the netlist;
+        # buggy output left `out` as an undriven register instead.
+        self.assertIn("assign out = 1'd1", verilog)
 
     def test_hierarchical_shared_memory_is_emitted_once(self):
         top = _SharedMemoryTop()
