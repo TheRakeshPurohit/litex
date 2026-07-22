@@ -1140,11 +1140,8 @@ def _convert_hierarchical(f, ios, name, platform, special_overrides, attr_transl
 
     _collect_raw_statements(ctx.root)
 
-    # Initialize inline flags once for the whole tree. Resetting them inside
-    # _mark_inline's recursion would undo _inline_subtree()'s marks: an inlined
-    # node's children would flip back to non-inline and then be silently
-    # dropped from emission (their parent is inline, so _emit never recurses
-    # into its hier_children).
+    # Initialize inline flags before applying policies so recursive visits do
+    # not undo an ancestor's decision to inline a complete subtree.
     def _reset_inline(node):
         node.inline = False
         for child in node.children:
