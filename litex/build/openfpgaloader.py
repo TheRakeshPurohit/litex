@@ -12,7 +12,7 @@ from litex.build.generic_programmer import GenericProgrammer
 class OpenFPGALoader(GenericProgrammer):
     needs_bitreverse = False
 
-    def __init__(self, board="", cable="", device=None, freq=0, fpga_part="", index_chain=None, ftdi_serial=None):
+    def __init__(self, board="", cable="", freq=0, fpga_part="", index_chain=None, ftdi_serial=None, device=None):
         GenericProgrammer.__init__(self)
 
         # openFPGALoader base command.
@@ -30,7 +30,7 @@ class OpenFPGALoader(GenericProgrammer):
         if cable:
             self.cmd += ["--cable", cable]
 
-        # Specify device to use (/dev/ttyUSBx)
+        # Specify serial device to use (/dev/ttyUSBx).
         if device:
             self.cmd += ["--device", device]
 
