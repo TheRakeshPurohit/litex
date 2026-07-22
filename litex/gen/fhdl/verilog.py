@@ -1140,10 +1140,17 @@ def _convert_hierarchical(f, ios, name, platform, special_overrides, attr_transl
 
     _collect_raw_statements(ctx.root)
 
+    # Initialize inline flags before applying policies so recursive visits do
+    # not undo an ancestor's decision to inline a complete subtree.
+    def _reset_inline(node):
+        node.inline = False
+        for child in node.children:
+            _reset_inline(child)
+
+    _reset_inline(ctx.root)
+
     def _mark_inline(node):
         parent_path = _normalize_hier_path(node.path)
-        for child in node.children:
-            child.inline = False
         parent_drivers = set(getattr(node, "raw_self_targets", node.raw_targets))
 
         # Policy 1: parent and child both drive same signal object -> inline child.
