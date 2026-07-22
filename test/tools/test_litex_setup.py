@@ -248,6 +248,17 @@ class TestLiteXSetup(unittest.TestCase):
         self.assertIn("litex Git repository has local changes.", output)
         self.assertIn("Update cancelled.", output)
 
+    def test_update_assume_yes_preserves_local_changes(self):
+        _upstream_path, repo_path = self.create_repo()
+        self.append_file(os.path.join(repo_path, "README.md"), "local change\n")
+
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+             mock.patch("builtins.input") as input_prompt:
+            litex_setup.litex_setup_update_repos(config="minimal", assume_yes=True)
+
+        input_prompt.assert_not_called()
+        self.assertIn("README.md", self.git_output(repo_path, "status", "--short"))
+
     def test_update_fast_forward_failure_has_actionable_error(self):
         upstream_path, repo_path = self.create_repo()
 
