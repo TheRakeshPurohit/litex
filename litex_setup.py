@@ -287,7 +287,7 @@ def git_status_has_tracked_changes(status):
             return True
     return False
 
-def git_confirm_update_with_local_changes(name, repo_path, always_update_repo):
+def git_confirm_update_with_local_changes(name, repo_path, assume_yes=False):
     status = git_status(repo_path, short=True)
     if not git_status_has_tracked_changes(status) or not sys.stdin.isatty():
         return
@@ -295,7 +295,7 @@ def git_confirm_update_with_local_changes(name, repo_path, always_update_repo):
     print_status("Updating can fail if these changes overlap with upstream changes.")
     print_status("Local changes:")
     print_indented(status, max_lines=12)
-    if not always_update_repo:
+    if not assume_yes:
         confirm = input("Continue updating this repository? [y/N]: ")
         if confirm.strip().lower() not in ["y", "yes"]:
             print_status("Update cancelled.")
@@ -419,7 +419,7 @@ def litex_setup_init_repos(config="standard", tag=None, dev_mode=False, clone_de
 
 # Git repositories update --------------------------------------------------------------------------
 
-def litex_setup_update_repos(config="standard", tag=None, always_update_repo=False):
+def litex_setup_update_repos(config="standard", tag=None, assume_yes=False):
     print_status("Updating Git repositories...", underline=True)
     for name in install_configs[config]:
         repo = git_repos[name]
@@ -432,7 +432,7 @@ def litex_setup_update_repos(config="standard", tag=None, always_update_repo=Fal
         print_status(f"Updating {name} Git repository...")
         os.chdir(os.path.join(current_path, name))
         repo_path = os.path.join(current_path, name)
-        git_confirm_update_with_local_changes(name, repo_path, always_update_repo)
+        git_confirm_update_with_local_changes(name, repo_path, assume_yes=assume_yes)
         try:
             subprocess_check_output(["git", "checkout", "--quiet", repo.branch], cwd=repo_path)
         except subprocess.CalledProcessError:
@@ -994,8 +994,8 @@ def main():
         help="Pass pip's --break-system-packages option when installing outside a virtual environment.")
     parser.add_argument("--config",    default="standard",  help="Install config (minimal, standard, full).")
     parser.add_argument("--tag",       default=None,        help="Use version from release tag.")
-    parser.add_argument("--always-update-repo", action="store_true",
-        help="Bypass the confirmation prompt before updating modified repositories.")
+    parser.add_argument("-y", "--yes", action="store_true",
+        help="Automatically confirm updates for repositories with local changes.")
     parser.add_argument("--clone-depth", type=int, default=None,
         help="Use shallow Git clones with this depth during --init when compatible.")
 
@@ -1044,7 +1044,7 @@ def main():
 
     # Update.
     if args.update:
-        litex_setup_update_repos(config=args.config, tag=args.tag, always_update_repo=args.always_update_repo)
+        litex_setup_update_repos(config=args.config, tag=args.tag, assume_yes=args.yes)
 
     # Install.
     if args.install:
